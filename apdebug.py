@@ -126,6 +126,10 @@ class apdebug(object):
         # Find the amount of time that the strace slept for before we made the call
         sleepytime = calls[1].split()[1]
 
+        # Make sure we grab the right one. This could use some improvement
+        if float(sleepytime) < .1:
+            sleepytime = calls[2].split()[1]
+
         # Sort the list of calls on the relative time, and find the top n
         sorted_calls = sorted(calls, key=lambda x: x.split()[1])
         top_times = [ row.split()[1] for row in sorted_calls[n:] ]
