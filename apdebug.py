@@ -22,13 +22,23 @@
 """
 
 import os
-import sys
+import socket
 from subprocess import Popen, PIPE
-import urlgrabber
+import sys
+from time import sleep
 
 def open_connection():
     """Open a connection with the webserver so we can grab the PID"""
-    data = urlgrabber.urlread('http://localhost/')
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect(('localhost', 80))
+    except socket.error, e:
+        sys.stderr.write("[ERROR] %s\n" %e[1])
+        sys.exit(1)
+    sock.send("HEAD / HTTP/1.1\r\nHost: localhost\r\nConnection: Keep-Alive\r\n\r\n")
+    response = sock.recv(2048)
+
+    return sock
 
 def get_listener_pid():
     """Find the process ID for the service accepting our connection"""
@@ -61,7 +71,10 @@ def strace(pid, outfile):
     return p.pid
 
 def send_request(url, headers=None):
-    data = urlgrabber.urlread('http://localhost' + url)
+    sock.send("GET %s HTTP/1.1\r\nHost: %s\r\n\r\n" % (url, 'localhost'))
+    response = sock.recv(1024)
+    sock.close()
+    return response
 
 # TODO: Retrieve times for call and print in pretty format
 def find_problems(outfile, n=5):
@@ -102,10 +115,11 @@ def main():
         sys.exit(1)
 
     url = sys.argv[1]
-    open_connection()
+    sock = open_connection()
     pid = get_listener_pid()
     stpid = strace(pid, outfile)
-    send_request(url)
+    sleep(1)
+    send_request(sock, url)
     # Send sigterm to our strace process
     os.kill(stpid,15)
     find_problems(outfile)
