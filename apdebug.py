@@ -70,16 +70,22 @@ def send_request(sock, url, headers=None):
     sock.close()
     return response
 
-# TODO: Retrieve times for call and print in pretty format
+# TODO: Nicer output
 def find_problems(outfile, n=5):
     """Find the n slowest system calls"""
     n = n * -1
     output = open(outfile, 'r')
     calls = output.readlines()
+    # Find the amount of time that the strace slept for before we made the call
+    sleepytime = calls[1].split()[1]
 
     # Sort the list of calls on the relative time, and find the top n
     sorted_calls = sorted(calls, key=lambda x: x.split()[1])
     top_times = [ row.split()[1] for row in sorted_calls[n:] ]
+
+    # Replace our sleep time in the top times
+    if sleepytime in top_times:
+        top_times[top_times.index(sleepytime)] = sorted_calls[n-1].split()[1]
 
     """ Find the system calls which correspond with the longest delays.
         The relative times in strace correspond with the previous system call
@@ -87,7 +93,7 @@ def find_problems(outfile, n=5):
     top_calls = [ (j.split()[1], calls[i-1].split()[2:]) for i, j in enumerate(calls) if j.split()[1] in top_times ]
 
     # Reverse sort our new list by the times
-    top_calls.sort(key=lambda x: x[0]) 
+    top_calls.sort(key=lambda x: x[0])
     top_calls.reverse()
 
     # Print
@@ -112,7 +118,7 @@ def main():
     sock = open_connection()
     pid = get_listener_pid()
     stpid = strace(pid, outfile)
-    sleep(1)
+    sleep(.5)
     send_request(sock, url)
     # Send sigterm to our strace process
     os.kill(stpid,15)
