@@ -44,16 +44,21 @@ def open_connection():
 
 def _netstat():
     """Grab the open connections from proc"""
-    PROC_TCP = '/proc/net/tcp'
-    try:
-        fd = open(PROC_TCP, 'r')
-    except:
-        return None
-    else:
-        output = fd.readlines()
-        output.pop(0)
-        fd.close()
-        return [ line.split() for line in output ]
+    PROCS = ( '/proc/net/tcp', '/proc/net/tcp6' )
+    output = []
+
+    for procfile in PROCS:
+        try:
+            fd = open(procfile, 'r')
+        except:
+            return None
+        else:
+            content = fd.readlines()
+            content.pop(0)
+            fd.close()
+            output.extend(content)
+
+    return [ line.split() for line in output ]
 
 def _get_pid_of_inode(inode):
     """Find the pid using inode and return it"""
