@@ -64,7 +64,7 @@ def strace(pid, outfile):
     p = Popen(["strace", "-o", outfile, "-rfs", "512", "-p", pid], stderr=open("/dev/null",'w'))
     return p.pid
 
-def send_request(url, headers=None):
+def send_request(sock, url, headers=None):
     sock.send("GET %s HTTP/1.1\r\nHost: %s\r\n\r\n" % (url, 'localhost'))
     response = sock.recv(1024)
     sock.close()
