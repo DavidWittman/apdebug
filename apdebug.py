@@ -21,8 +21,10 @@
 
 """
 
+from glob import glob
 import os
 import socket
+import re
 from subprocess import Popen, PIPE
 import sys
 from time import sleep
@@ -40,24 +42,38 @@ def open_connection():
 
     return sock
 
-def get_listener_pid():
-    """Find the process ID for the service accepting our connection"""
-    pid = str(os.getpid()) + "/"
-    pyport = ''
+def _netstat():
+    """Grab the open connections from proc"""
+    PROC_TCP = '/proc/net/tcp'
+    try:
+        fd = open(PROC_TCP, 'r')
+    except:
+        return None
+    else:
+        output = fd.readlines()
+        output.pop(0)
+        fd.close()
+        return [ line.split() for line in output ]
 
-    proc = Popen(["netstat", "-ntp"], stdout=PIPE)
-    output = [ line.split() for line in proc.stdout.readlines() ]
-    for line in output:
+def _get_pid_of_inode(inode):
+    """Find the pid using inode and return it"""
+    for i in glob('/proc/[0-9]*/fd/[0-9]*'):
         try:
-            if line[6].startswith(pid):
-                # The is the row for our process, get our port
-                pyport = line[3].split(':')[-1]
-                for i in output:
-                    if i[4].endswith(':' + pyport):
-                        # This is the row containing the httpd process, return the pid
-                        return i[6].split('/')[0]
-        except IndexError:
+            if re.search(inode, os.readlink(i)):
+                return i.split('/')[2]
+        except OSError:
             pass
+
+def get_listener_pid(localport):
+    """Find the process ID for the service accepting our connection"""
+    localport = hex(localport)[2:].upper()
+
+    # Find the inode associated with our connection
+    for line in _netstat():
+        if line[2].split(':')[-1] == localport:
+            inode = line[9]
+
+    return _get_pid_of_inode(inode)
 
 def strace(pid, outfile):
     """Start the strace"""
@@ -116,7 +132,7 @@ def main():
 
     url = sys.argv[1]
     sock = open_connection()
-    pid = get_listener_pid()
+    pid = get_listener_pid(sock.getsockname()[1])
     stpid = strace(pid, outfile)
     sleep(.5)
     send_request(sock, url)
