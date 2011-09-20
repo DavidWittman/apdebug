@@ -85,7 +85,11 @@ def find_problems(outfile, n=5):
 
     # Print
     for time, call in top_calls:
-        print time + ' ' + ' '.join(call)
+        print colors.RED + time + colors.RESET + ' ' + ' '.join(call)
+
+class colors(object):
+    RED="\033[1;31m"
+    RESET="\033[0m"
 
 def usage():
     print "usage: " + sys.argv[0] + " /url/to/strace.php"
