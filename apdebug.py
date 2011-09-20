@@ -42,28 +42,22 @@ def open_connection():
 
 def get_listener_pid():
     """Find the process ID for the service accepting our connection"""
-    # TODO: Iterate over full output after finding our port #
-
     pid = str(os.getpid()) + "/"
     pyport = ''
-    httpid = None
-    
-    output = Popen(["netstat", "-ntp"], stdout=PIPE)
-    for line in output.stdout:
-        columns = line.split()
-    
+
+    proc = Popen(["netstat", "-ntp"], stdout=PIPE)
+    output = [ line.split() for line in proc.stdout.readlines() ]
+    for line in output:
         try:
-            if columns[6].startswith(pid):
+            if line[6].startswith(pid):
                 # The is the row for our process, get our port
-                pyport = columns[3].split(':')[-1]
+                pyport = line[3].split(':')[-1]
+                for i in output:
+                    if i[4].endswith(':' + pyport):
+                        # This is the row containing the httpd process, return the pid
+                        return i[6].split('/')[0]
         except IndexError:
             pass
-
-        if columns[4].endswith(':' + pyport):
-            # This is the row containing the httpd process
-            httpid = columns[6].split('/')[0]
-
-    return httpid
 
 def strace(pid, outfile):
     """Start the strace"""
