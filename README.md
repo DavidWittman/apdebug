@@ -4,6 +4,6 @@
 * * *
 
 ### Usage
-<p>Currently, apdebug can only strace requests for the default Virtual Host, but support for passing host headers will be added in the near future.</p>
-	./apdebug.py /url/to/debug.php
+<p><b>Note: </b>Keep-Alives must be enabled on your webserver in order to grab the correct PID to strace.</p>
+	./apdebug.py example.com/debugme.php
 
