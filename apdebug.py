@@ -29,29 +29,37 @@ from glob import glob
 from time import sleep
 from subprocess import Popen, PIPE
 
-class apdebug(object):
-    def __init__(self, url):
-        url = url.split('/')
-        self.hostname = url.pop(0)
-        if self.hostname.startswith("http"): 
-            del(url[0])
-            self.hostname = url.pop(0)
-        self.request = '/' + '/'.join(url)
+class HttpSock(socket.socket):
+    """A simple HTTP client for debugging purposes"""
+    def __init__(self, hostname):
+        self.hostname = hostname
+        super(HttpSock, self).__init__(socket.AF_INET, socket.SOCK_STREAM)
 
-    class colors(object):
-        RED="\033[1;31m"
-        RESET="\033[0m"
-
-    def open_connection(self):
-        """Open a connection with the webserver so we can grab the PID"""
+    def open(self):
         try:
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.sock.connect(('localhost', 80))
+            self.connect(('localhost', 80))
         except socket.error, e:
-            sys.stderr.write("[ERROR] %s\n" %e[1])
+            sys.stderr.write("[ERROR] %s\n" % e[1])
             sys.exit(1)
-        self.sock.send("HEAD / HTTP/1.1\r\nHost: localhost\r\nConnection: Keep-Alive\r\n\r\n")
-        response = self.sock.recv(2048)
+        self.send("HEAD / HTTP/1.1\r\nHost: localhost\r\nConnection: Keep-Alive\r\n\r\n")
+        response = self.recv(2048)
+
+        self.pid = self._get_listener_pid()
+
+        return response
+
+    def get(self, url, headers=None):
+        # Form the request
+        request = [ "GET %s HTTP/1.1" % url, "Host: %s" % self.hostname ]
+        if headers:
+            request.extend([ k + ': ' + v for k, v in headers.items() ])
+        # Extend with two empty values for trailing \r\n\r\n
+        request.extend(['',''])
+        
+        # Send, receive, and close
+        self.send('\r\n'.join(request))
+        response = self.recv(1024)
+        self.close()
 
         return response
 
@@ -73,18 +81,9 @@ class apdebug(object):
 
         return [ line.split() for line in output ]
 
-    def _get_pid_of_inode(self, inode):
-        """Find the pid using inode and return it"""
-        for i in glob('/proc/[0-9]*/fd/[0-9]*'):
-            try:
-                if re.search(inode, os.readlink(i)):
-                    return i.split('/')[2]
-            except OSError:
-                pass
-
-    def get_listener_pid(self):
-        """Find the process ID for the service accepting our connection"""
-        localport = self.sock.getsockname()[1]
+    def _get_listener_pid(self):
+        """Find the process ID for the service accepting our connection locally"""
+        localport = self.getsockname()[1]
         localport = hex(localport)[2:].upper()
 
         # Find the inode associated with our connection
@@ -94,6 +93,29 @@ class apdebug(object):
 
         return self._get_pid_of_inode(inode)
 
+    def _get_pid_of_inode(self, inode):
+        """Find the pid using inode and return it"""
+        for i in glob('/proc/[0-9]*/fd/[0-9]*'):
+            try:
+                if re.search(inode, os.readlink(i)):
+                    return i.split('/')[2]
+            except OSError:
+                pass
+
+class ApDebug(object):
+    def __init__(self, url):
+        url = url.split('/')
+        self.hostname = url.pop(0)
+        if self.hostname.startswith("http"): 
+            del(url[0])
+            self.hostname = url.pop(0)
+        self.http = HttpSock(self.hostname)
+        self.request = '/' + '/'.join(url)
+
+    class colors(object):
+        RED="\033[1;31m"
+        RESET="\033[0m"
+
     def _strace(self, pid):
         """System call to strace"""
         p = Popen(["strace", "-o", self.outfile, "-rfs", "512", "-p", pid], stderr=open("/dev/null",'w'))
@@ -102,23 +124,20 @@ class apdebug(object):
     def strace(self, outfile):
         """Start the strace"""
         self.outfile = outfile
-        self.open_connection()
-        pid = self.get_listener_pid()
-        stpid = self._strace(pid)
+        self.http.open()
+        stpid = self._strace(self.http.pid)
         sleep(.5)
-        self.send_request(self.request)
+        self.http.get(self.request)
         # Send SIGTERM to our strace process
         os.kill(stpid, 15)
-        self.find_problems()
+        self.find_slow_calls()
 
-    def send_request(self, url, headers=None):
-        self.sock.send("GET %s HTTP/1.1\r\nHost: %s\r\n\r\n" % (url, self.hostname))
-        response = self.sock.recv(1024)
-        self.sock.close()
-        return response
+    def get_queries(self):
+        """Find and return a list of MySQL queries executed within the strace"""
+        pass
 
-    # TODO: Nicer output
-    def find_problems(self, n=5):
+    # TODO: convert to get_slow_calls and return a list
+    def find_slow_calls(self, n=5):
         """Find the n slowest system calls"""
         n = n * -1
         output = open(self.outfile, 'r')
@@ -141,15 +160,15 @@ class apdebug(object):
         """ Find the system calls which correspond with the longest delays.
             The relative times in strace correspond with the previous system call
             WARNING: not very Pythonic """
-        top_calls = [ (j.split()[1], calls[i-1].split()[2:]) for i, j in enumerate(calls) if j.split()[1] in top_times ]
+        slow_calls = [ (i-1, j.split()[1], calls[i-1].split()[2:]) for i, j in enumerate(calls) if j.split()[1] in top_times ]
 
         # Reverse sort our new list by the times
-        top_calls.sort(key=lambda x: x[0])
-        top_calls.reverse()
+        slow_calls.sort(key=lambda x: x[1])
+        slow_calls.reverse()
 
         # Print
-        for time, call in top_calls:
-            print self.colors.RED + time + self.colors.RESET + ' ' + ' '.join(call)
+        for linenum, time, call in slow_calls:
+            print "%s%s%s %s" % (self.colors.RED, time, self.colors.RESET, ' '.join(call))
 
     @classmethod
     def usage(self):
@@ -157,7 +176,8 @@ class apdebug(object):
 
 if __name__ == '__main__':
     if len(sys.argv) is not 2:
-        apdebug.usage()
+        ApDebug.usage()
         sys.exit(1)
-    ad = apdebug(sys.argv[1])
+    ad = ApDebug(sys.argv[1])
     ad.strace('/tmp/strace.out')
+
