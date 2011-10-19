@@ -139,28 +139,31 @@ class ApDebug(object):
     # TODO: convert to get_slow_calls and return a list
     def find_slow_calls(self, n=5):
         """Find the n slowest system calls"""
+        def call_time(call):
+            return call.split()[1]
+
         n = n * -1
         output = open(self.outfile, 'r')
         calls = output.readlines()
         # Find the amount of time that the strace slept for before we made the call
-        sleepytime = calls[1].split()[1]
+        sleepytime = call_time(calls[1])
 
         # Make sure we grab the right one. This could use some improvement
         if float(sleepytime) < .1:
-            sleepytime = calls[2].split()[1]
+            sleepytime = call_time(calls[2])
 
         # Sort the list of calls on the relative time, and find the top n
-        sorted_calls = sorted(calls, key=lambda x: x.split()[1])
-        top_times = [ row.split()[1] for row in sorted_calls[n:] ]
+        sorted_calls = sorted(calls, key=call_time)
+        top_times = [ call_time(row) for row in sorted_calls[n:] ]
 
         # Replace our sleep time in the top times
         if sleepytime in top_times:
-            top_times[top_times.index(sleepytime)] = sorted_calls[n-1].split()[1]
+            top_times[top_times.index(sleepytime)] = call_time(sorted_calls[n-1])
 
         """ Find the system calls which correspond with the longest delays.
             The relative times in strace correspond with the previous system call
             WARNING: not very Pythonic """
-        slow_calls = [ (i-1, j.split()[1], calls[i-1].split()[2:]) for i, j in enumerate(calls) if j.split()[1] in top_times ]
+        slow_calls = [ (i-1, call_time(j), calls[i-1].split()[2:]) for i, j in enumerate(calls) if call_time(j) in top_times ]
 
         # Reverse sort our new list by the times
         slow_calls.sort(key=lambda x: x[1])
