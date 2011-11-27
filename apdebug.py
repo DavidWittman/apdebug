@@ -22,94 +22,26 @@
 """
 
 import os
-import socket
-import re
 import sys
-from glob import glob
 from time import sleep
 from subprocess import Popen, PIPE
 
-class HttpSock(socket.socket):
-    """A simple HTTP client for debugging purposes"""
-    def __init__(self, hostname):
-        self.hostname = hostname
-        super(HttpSock, self).__init__(socket.AF_INET, socket.SOCK_STREAM)
-
-    def open(self):
-        try:
-            self.connect(('localhost', 80))
-        except socket.error, e:
-            sys.stderr.write("[ERROR] %s\n" % e[1])
-            sys.exit(1)
-        self.send("HEAD / HTTP/1.1\r\nHost: localhost\r\nConnection: Keep-Alive\r\n\r\n")
-        response = self.recv(2048)
-
-        self.pid = self._get_listener_pid()
-
-        return response
-
-    def get(self, url, headers=None):
-        # Form the request
-        request = [ "GET %s HTTP/1.1" % url, "Host: %s" % self.hostname ]
-        if headers:
-            request.extend([ k + ': ' + v for k, v in headers.items() ])
-        # Extend with two empty values for trailing \r\n\r\n
-        request.extend(['',''])
-        
-        # Send, receive, and close
-        self.send('\r\n'.join(request))
-        response = self.recv(1024)
-        self.close()
-
-        return response
-
-    def _netstat(self):
-        """Grab the open connections from proc"""
-        PROCS = ( '/proc/net/tcp', '/proc/net/tcp6' )
-        output = []
-
-        for procfile in PROCS:
-            try:
-                fd = open(procfile, 'r')
-            except:
-                return None
-            else:
-                content = fd.readlines()
-                content.pop(0)
-                fd.close()
-                output.extend(content)
-
-        return [ line.split() for line in output ]
-
-    def _get_listener_pid(self):
-        """Find the process ID for the service accepting our connection locally"""
-        localport = self.getsockname()[1]
-        localport = hex(localport)[2:].upper()
-
-        # Find the inode associated with our connection
-        for line in self._netstat():
-            if line[2].split(':')[-1] == localport:
-                inode = line[9]
-
-        return self._get_pid_of_inode(inode)
-
-    def _get_pid_of_inode(self, inode):
-        """Find the pid using inode and return it"""
-        for i in glob('/proc/[0-9]*/fd/[0-9]*'):
-            try:
-                if re.search(inode, os.readlink(i)):
-                    return i.split('/')[2]
-            except OSError:
-                pass
+import httpsock
 
 class ApDebug(object):
+    """ Starts the webserver debugger
+    >>> ap = ApDebug('http://example.com/foo.php')
+    >>> ap.strace('/tmp/strace.out')
+
+    """
+
     def __init__(self, url):
         url = url.split('/')
         self.hostname = url.pop(0)
         if self.hostname.startswith("http"): 
             del(url[0])
             self.hostname = url.pop(0)
-        self.http = HttpSock(self.hostname)
+        self.http = httpsock.HttpSock('localhost')
         self.request = '/' + '/'.join(url)
 
     class colors(object):
@@ -118,7 +50,8 @@ class ApDebug(object):
 
     def _strace(self, pid):
         """System call to strace"""
-        p = Popen(["strace", "-o", self.outfile, "-rfs", "512", "-p", pid], stderr=open("/dev/null",'w'))
+        p = Popen(["strace", "-o", self.outfile, "-rfs", "512", "-p", pid], 
+                    stderr=open("/dev/null",'w'))
         return p.pid
 
     def strace(self, outfile):
@@ -127,7 +60,7 @@ class ApDebug(object):
         self.http.open()
         stpid = self._strace(self.http.pid)
         sleep(.5)
-        self.http.get(self.request)
+        self.http.get(self.hostname, self.request)
         # Send SIGTERM to our strace process
         os.kill(stpid, 15)
         self.find_slow_calls()
@@ -154,16 +87,19 @@ class ApDebug(object):
 
         # Sort the list of calls on the relative time, and find the top n
         sorted_calls = sorted(calls, key=call_time)
-        top_times = [ call_time(row) for row in sorted_calls[n:] ]
+        top_times = [call_time(row) for row in sorted_calls[n:]]
 
         # Replace our sleep time in the top times
         if sleepytime in top_times:
-            top_times[top_times.index(sleepytime)] = call_time(sorted_calls[n-1])
+            top_times[top_times.index(sleepytime)] = call_time(
+                sorted_calls[n-1])
 
-        """ Find the system calls which correspond with the longest delays.
-            The relative times in strace correspond with the previous system call
-            WARNING: not very Pythonic """
-        slow_calls = [ (i-1, call_time(j), calls[i-1].split()[2:]) for i, j in enumerate(calls) if call_time(j) in top_times ]
+        """ Find the system calls which correspond with the longest 
+            delays.  The relative times in strace correspond with 
+            the previous system call.  WARNING: not very Pythonic     
+        """
+        slow_calls = [(i-1, call_time(j), calls[i-1].split()[2:]) 
+            for i, j in enumerate(calls) if call_time(j) in top_times]
 
         # Reverse sort our new list by the times
         slow_calls.sort(key=lambda x: x[1])
@@ -171,7 +107,10 @@ class ApDebug(object):
 
         # Print
         for linenum, time, call in slow_calls:
-            print "%s%s%s %s" % (self.colors.RED, time, self.colors.RESET, ' '.join(call))
+            print "%s%s%s %s" % (self.colors.RED, 
+                                time, 
+                                self.colors.RESET, 
+                                ' '.join(call))
 
     @classmethod
     def usage(self):
