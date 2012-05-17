@@ -4,7 +4,7 @@
  apdebug.py
  Webserver debugging script
 
- Copyright (c) 2011 David Wittman <david@wittman.com>
+ Copyright (c) 2012 David Wittman <david@wittman.com>
 
  This program is free software: you can redistribute it and/or modify
  it under the terms of the GNU General Public License as published by
@@ -26,23 +26,21 @@ import sys
 from time import sleep
 from subprocess import Popen, PIPE
 
-import httpsock
+import utils
 
 class ApDebug(object):
     """ Starts the webserver debugger
+    
+    :param url: The URL to strace
+    :type url: string
+
     >>> ap = ApDebug('http://example.com/foo.php')
     >>> ap.strace('/tmp/strace.out')
-
     """
 
     def __init__(self, url):
-        url = url.split('/')
-        self.hostname = url.pop(0)
-        if self.hostname.startswith("http"): 
-            del(url[0])
-            self.hostname = url.pop(0)
-        self.http = httpsock.HttpSock('localhost')
-        self.request = '/' + '/'.join(url)
+        self.url = utils.Url(url)
+        self.http = utils.HttpSock('localhost')
 
     class colors(object):
         RED="\033[1;31m"
@@ -60,7 +58,7 @@ class ApDebug(object):
         self.http.open()
         stpid = self._strace(self.http.pid)
         sleep(.5)
-        self.http.get(self.hostname, self.request)
+        self.http.get(self.url.hostname, self.url.request)
         # Send SIGTERM to our strace process
         os.kill(stpid, 15)
         self.find_slow_calls()

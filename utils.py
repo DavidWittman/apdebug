@@ -6,17 +6,21 @@ import socket
 import re
 import sys
 from glob import glob
+from urlparse import urlparse
 
 class HttpSock(socket.socket):
     """A simple HTTP client for debugging purposes.
     
-    Args:
-        hostname: The HTTP server to establish a connection with
+    :param hostname: The HTTP server to establish a connection with
+    :type hostname: string
+    :param port: TCP port for the connection
+    :type port: int
 
     """
 
-    def __init__(self, hostname):
+    def __init__(self, hostname, port):
         self.hostname = hostname
+        self.port = port
         super(HttpSock, self).__init__(socket.AF_INET, socket.SOCK_STREAM)
 
     def open(self):
@@ -28,7 +32,7 @@ class HttpSock(socket.socket):
         """
 
         try:
-            self.connect((self.hostname, 80))
+            self.connect((self.hostname, self.port))
         except socket.error, e:
             sys.stderr.write("[ERROR] %s\n" % e[1])
             sys.exit(1)
@@ -117,3 +121,28 @@ class HttpSock(socket.socket):
                     return i.split('/')[2]
             except OSError:
                 pass
+
+
+class Url(object):
+    """A wrapper around urlparse
+
+    :param url: The URL
+    :type url: string
+    """
+    def __init__(self, url):
+        if not url.startswith(('http://','https://')):
+            url = ''.join(['http://', url])
+
+        self.before = url
+        self.url = urlparse(url)
+        self.hostname = self.url.netloc.split(':')[0]
+        self.port = self.url.port or 80
+
+    @property
+    def request(self):
+        if not self.url.path:
+            return '/'
+        elif not self.url.query:
+            return self.url.path
+        else:
+            return '?'.join([self.url.path, self.url.query])
