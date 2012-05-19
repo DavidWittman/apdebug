@@ -40,7 +40,7 @@ class ApDebug(object):
 
     def __init__(self, url):
         self.url = utils.Url(url)
-        self.http = utils.HttpSock('localhost')
+        self.http = utils.HttpSock('localhost', self.url.port)
 
     class colors(object):
         RED="\033[1;31m"
